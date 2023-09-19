@@ -1,0 +1,1027 @@
+#please install all packages if not available, can use similar code as shown below for installation. Once installed, no need to reinstall
+!pip install arch
+!pip install linearmodels
+
+#packages needed for this script
+import pandas as pd #package for data handling
+import numpy as np #package for default arithmetic
+import matplotlib.pyplot as plt #package for plotting graph
+import seaborn as sns #package for plotting graph
+import statsmodels.api as sm #package for models and other statistical test
+from statsmodels.tsa.stattools import adfuller #package for ADF test for stationarity
+from arch.unitroot import PhillipsPerron #package for Phillips Perron test for stationarity
+from statsmodels.tsa.stattools import kpss #package for KPSS test for stationarity
+from statsmodels.tsa.stattools import acf, pacf #package for acf and pacf
+from statsmodels.tsa.arima.model import ARIMA #package for ARIMA
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf #package to plot autocorrelation function and partial
+from statsmodels.stats.diagnostic import acorr_ljungbox #package for ljungbox text for white noise
+from sklearn.model_selection import train_test_split #for train_test
+
+# Functions for EDA
+
+def eda(df):
+  print(df.info())
+  print()
+  print()
+  display(df.head(10), df.tail(10))
+  print()
+  print()
+  print('Data summary statistics')
+  display(df.describe())
+  print()
+  print()
+  df.select_dtypes(include = np.number).plot(subplots = True, sharex = True, figsize = (11.69,8.27), use_index = True, title = "Graphs of all variables", legend = True, xlabel = "Date")
+  plt.show()
+  print()
+  print()
+  pairplot = sns.pairplot(data = df.select_dtypes(include = np.number), kind = "reg", diag_kind = "hist", dropna = True)
+  pairplot.fig.subplots_adjust(top = .95)
+  pairplot.fig.suptitle("Variables distribution and two way relationships")
+  plt.show()
+  print()
+  print()
+  sns.heatmap(data = df.corr(numeric_only = True), cmap = "RdYlGn", center = 0, robust = True, square = True, annot = True, fmt = ".0%", linewidth = 0.5)
+  plt.title("Correlation matrix between variables")
+  plt.show()
+
+# functions for transformation
+
+# function to log selected columns
+def transform_log(df):
+
+  print(df.columns)
+  input_string = input("Enter all columns' name to be log separated by space: ")
+  columns = input_string.split(" ")
+
+  for i in columns:
+    df[i] = df[i].transform(np.log)
+
+  return df
+
+
+# function to difference selected columns
+def transform_diff(df, second_diff = False):
+
+  print(df.columns)
+  input_string = input("Enter all columns' name to be diff separated by space: ")
+  columns = input_string.split(" ")
+
+  second_diff = int(input("1 if need second difference, 0 if do not need second difference: "))
+
+  for i in columns:
+    print("Column: " + i)
+    df[i] = df[i].diff(int(input("Please enter the number of first difference i.e. 1 for difference to previous row, 12 for difference to previous 12 rows: ")))
+
+  if second_diff == True:
+      print(df.columns)
+      input_string_2 = input("Enter all columns' name to be second differenced separated by space: ")
+      columns_2 = input_string_2.split(" ")
+
+      for i in columns_2:
+        print("Column: " + i)
+        df[i] = df[i].diff(int(input("Please enter the number of second difference i.e. 1 for difference to previous row, 12 for difference to previous 12 rows: ")))
+
+  return df
+
+
+# function to perform data transformation
+def transform_data(df, to_log = False, to_diff = False):
+
+  transform = df.copy()
+  to_log = int(input("1 if need to log, 0 if no need to log: "))
+  to_diff = int(input("1 if need to diff, 0 if no need to diff: "))
+
+  if to_log == True and to_diff == False:
+    transform_log(transform)
+
+  elif to_log == False and to_diff == True:
+    transform_diff(transform)
+
+  elif to_log == True and to_diff == True:
+    transform_log(transform)
+    transform_diff(transform)
+
+  return transform
+
+
+# function to invert differenced columns
+def invert_diff(original_df, differenced_df, second_diff = False):
+
+    second_diff = int(input("1 if need to undo second differencing, 0 if only inversing first difference: "))
+
+    print("Please log the variables that was log before differenced")
+    original_df = transform_log(original_df)
+
+    if second_diff == True:
+
+      print(original_df.columns)
+      input_string = input("Enter all columns' name to undo second differencing separated by space: ")
+      columns = input_string.split(" ")
+
+      for i in columns:
+
+        print("Column: " + i)
+        first_d = int(input("Please insert the number of difference for the first difference: "))
+        second_d = int(input("Please insert the number of difference for the second difference: "))
+        diff = original_df[i].diff(first_d)
+        first_invert = diff.shift(second_d) + differenced_df[i]
+        second_invert = original_df[i].shift(first_d) + first_invert
+        differenced_df[i] = second_invert
+
+      print(original_df.columns)
+      input_string2 = input("Enter all columns' name to undo first differencing other than previously listed separated by space: ")
+      columns_2 = input_string2.split(" ")
+
+      for i in columns_2:
+
+        print("Column: " + i)
+        first_d = int(input("Please insert the number of difference for the first difference: "))
+        first_invert = original_df[i].shift(first_d) + differenced_df[i]
+        differenced_df[i] = first_invert
+
+    elif second_diff == False:
+
+      print(original_df.columns)
+      input_string = input("Enter all columns' name to undo first differencing separated by space: ")
+      columns = input_string.split(" ")
+
+      for i in columns:
+
+        print("Column: " + i)
+        first_d = int(input("Please insert the number of difference for the first difference: "))
+        first_invert = original_df[i].shift(first_d) + differenced_df[i]
+        differenced_df[i] = first_invert
+
+    return differenced_df
+
+
+# Function to invert log transformation
+def invert_log(df):
+
+  print(df.columns)
+  input_string = input("Enter all columns' name to be inverted its log separated by space: ")
+  columns = input_string.split(" ")
+
+  for i in columns:
+    df[i] = df[i].apply(np.exp)
+
+  return df
+
+
+# Function to perform inverse transformation
+def inverse_transformation(original_data, differenced_data, log = False, diff = False):
+
+  original_data = original_data.copy()
+  differenced_data = differenced_data.copy()
+
+  log = int(input("1 if need to invert log, 0 if no need to invert log: "))
+  diff = int(input("1 if need to invert diff, 0 if no need to invert diff: "))
+
+  if diff == True and log == True:
+    invert_data = invert_diff(original_data, differenced_data)
+    invert_data = invert_log(invert_data)
+
+  elif diff == True and log == False:
+    invert_data = invert_diff(original_data, differenced_data)
+
+  elif diff == False and log == True:
+    invert_data = invert_log(differenced_data)
+
+  else:
+    invert_data = differenced_data
+
+  return invert_data
+
+# Functions for testing
+
+# function for colour formatting for pvalue - hypothesis testing
+def pvalue_formatting(col):
+    if col.name == '10%':
+        return ['background-color: green' if c < 0.1 else 'background-color: red' for c in col.values]
+    if col.name == '5%':
+        return ['background-color: green' if c < 0.05 else 'background-color: red' for c in col.values]
+    if col.name == '1%':
+        return ['background-color: green' if c < 0.01 else 'background-color: red' for c in col.values]
+
+def pvalue_formatting2(col):
+    if col.name == '10%':
+        return ['background-color: red' if c < 0.1 else 'background-color: green' for c in col.values]
+    if col.name == '5%':
+        return ['background-color: red' if c < 0.05 else 'background-color: green' for c in col.values]
+    if col.name == '1%':
+        return ['background-color: red' if c < 0.01 else 'background-color: green' for c in col.values]
+
+
+# function for vif test formatting
+def vif_formatting(col):
+        return ['background-color: green' if c < 5 else 'background-color: red' for c in col.values]
+
+
+# function to perform ADF test
+def adf_test(df):
+
+  indicator = []
+  pvalue = []
+
+  for column in df:
+    adf = adfuller(df[column], regression = 'ct')
+    p_value = adf[1]
+    indicator.append(column)
+    pvalue.append(p_value)
+
+  adf_test = pd.DataFrame({'Indicator':indicator,'10%':pvalue,'5%':pvalue,'1%':pvalue}).style.apply(pvalue_formatting, subset = ['10%','5%','1%'])
+
+  print("ADF test for stationarity: H0 is time series is not stationary")
+  display(adf_test)
+
+
+# Function to perform Phillips Perron test
+def pp_test(df):
+
+  indicator = []
+  pvalue = []
+
+  for column in df:
+    pp = PhillipsPerron(df[column])
+    p_value = pp.pvalue
+    indicator.append(column)
+    pvalue.append(p_value)
+
+  pp_test = pd.DataFrame({'Indicator':indicator,'10%':pvalue,'5%':pvalue,'1%':pvalue}).style.apply(pvalue_formatting, subset = ['10%','5%','1%'])
+
+  print("PP test for stationarity: H0 is time series is not stationary")
+  display(pp_test)
+
+
+# Function to perform KPSS test
+def kpss_test(df):
+
+  indicator = []
+  pvalue = []
+
+  for column in df:
+    kpss_test = kpss(df[column], regression = 'ct')
+    p_value = kpss_test[1]
+    indicator.append(column)
+    pvalue.append(p_value)
+
+  kpss_test = pd.DataFrame({'Indicator':indicator,'10%':pvalue,'5%':pvalue,'1%':pvalue}).style.apply(pvalue_formatting2, subset = ['10%','5%','1%'])
+
+  print("KPSS test for stationarity: H0 is time series is stationary")
+  display(kpss_test)
+
+
+# Function to perform all stationarity test
+def stationarity_test(df):
+
+  print("Stationarity test using ADF, PP, and KPSS. Green cells indicate series is stationary while red otherwise")
+  print()
+  adf_test(df)
+  print()
+  pp_test(df)
+  print()
+  kpss_test(df)
+
+
+# Function to estimate ACF and PACF for autocorrelation
+def acf_pacf_analysis(x, max_lags=24):
+    acf_values = sm.tsa.acf(x)
+    pacf_values = sm.tsa.pacf(x)
+
+    plt.figure(figsize=(12, 4))
+
+    plt.subplot(1, 2, 1)
+    sm.graphics.tsa.plot_acf(x, lags=max_lags, ax=plt.gca())
+    plt.xlabel('Lags')
+    plt.ylabel('ACF')
+
+    plt.subplot(1, 2, 2)
+    sm.graphics.tsa.plot_pacf(x, lags=max_lags, ax=plt.gca())
+    plt.xlabel('Lags')
+    plt.ylabel('PACF')
+
+    plt.tight_layout()
+    plt.suptitle("ACF and PACF graph for " + x.name)
+    plt.show()
+
+
+# Function to graph ACF and PACF
+def acf_pacf_graph(df):
+  for column in df:
+    acf_pacf_analysis(df[column])
+
+# Function for accuracy testing
+def forecast_accuracy(forecast, actual):
+  forecast = forecast.squeeze()
+  actual = actual.squeeze()
+  mape = np.mean(np.abs(forecast - actual)/np.abs(actual))  # MAPE
+  me = np.mean(forecast - actual)             # ME
+  mae = np.mean(np.abs(forecast - actual))    # MAE
+  mpe = np.mean((forecast - actual)/actual)   # MPE
+  rmse = np.mean((forecast - actual)**2)**.5  # RMSE
+  corr = np.corrcoef(forecast, actual)[0,1]   # corr
+  mins = np.amin(np.hstack([np.array(forecast)[:,None], np.array(actual)[:,None]]), axis=1)
+  maxs = np.amax(np.hstack([np.array(forecast)[:,None], np.array(actual)[:,None]]), axis=1)
+  minmax = 1 - np.mean(mins/maxs)             # minmax
+  accuracy_prod = ({'mape':mape, 'me':me, 'mae': mae,'mpe': mpe, 'rmse':rmse, 'corr':corr, 'minmax':minmax})
+  print('Forecast Accuracy of:',input("Please put model name: ")," used to forecast ", input("Please put dependent variable name: "))
+  for k, v in accuracy_prod.items():
+    print(adjust(k), ': ', round(v,4))
+
+# Function for random walk accuracy testing
+def rw_forecast_accuracy(forecast, actual):
+  forecast = forecast.squeeze()
+  actual = actual.squeeze()
+  mape = np.mean(np.abs(forecast - actual)/np.abs(actual))  # MAPE
+  me = np.mean(forecast - actual)             # ME
+  mae = np.mean(np.abs(forecast - actual))    # MAE
+  mpe = np.mean((forecast - actual)/actual)   # MPE
+  rmse = np.mean((forecast - actual)**2)**.5  # RMSE
+  corr = np.corrcoef(forecast, actual)[0,1]   # corr
+  mins = np.amin(np.hstack([np.array(forecast)[:,None], np.array(actual)[:,None]]), axis=1)
+  maxs = np.amax(np.hstack([np.array(forecast)[:,None], np.array(actual)[:,None]]), axis=1)
+  minmax = 1 - np.mean(mins/maxs)             # minmax
+  accuracy_prod = ({'mape':mape, 'me':me, 'mae': mae,'mpe': mpe, 'rmse':rmse, 'corr':corr, 'minmax':minmax})
+  print('Forecast Accuracy of:',"Random walk model"," used to forecast ", input("Please put dependent variable name: "))
+  for k, v in accuracy_prod.items():
+    print(adjust(k), ': ', round(v,4))
+
+def adjust(val, length= 6): return str(val).ljust(length)
+
+
+# Function to find the optimal lag for VECM model
+
+def vecm_optimal_lag(df):
+
+  if df.index.freq == 'm':
+    lags = 12
+    seasons = 12
+  elif df.index.freq == 'q':
+    lags = 4
+    seasons = 4
+
+  deterministic = input("n - no deterministic terms, co - constant outside the cointegration relation, ci - constant within the cointegration relation, lo - linear trend outside the cointegration relation, li - linear trend within the cointegration relation - Combinations of these are possible (e.g. cili or colo for linear trend with intercept): ")
+
+  result = select_order(df, deterministic = deterministic, maxlags = lags, seasons = seasons)
+  print()
+  print()
+  print(result.summary())
+  print()
+  print()
+  lag = [result.aic, result.bic, result.fpe, result.hqic]
+  if len(st.multimode(lag)) != 1:
+    optimal_lag = result.aic
+  elif len(st.multimode(lag)) == 1:
+    optimal_lag = st.mode(lag)
+  print("The optimal lag for the model is",optimal_lag)
+
+  return optimal_lag
+
+
+# Functio to test cointegraion rank
+
+def cointegration_test(df):
+
+  lag = int(input("Insert optimal lag number obtained from test: "))
+  deterministic = int(input("-1 - no deterministic terms, 0 - constant term, 1 - linear trend "))
+  result = coint_johansen(df, det_order = deterministic, k_ar_diff = lag)
+  null = ['r = 0', 'r <= 1', 'r <= 2']
+  trace_stat = result.trace_stat.tolist()
+  trace_stat_crit_vals = result.trace_stat_crit_vals.tolist()
+  a,b,c = trace_stat_crit_vals
+  max_eig_stat = result.max_eig_stat.tolist()
+  max_eig_stat_crit_vals = result.max_eig_stat_crit_vals.tolist()
+  d,e,f = trace_stat_crit_vals
+  table = pd.DataFrame({'Null Hypothesis of cointegration rank':null,'Trace statistic':trace_stat,'Trace statistic critical values at 99%':a,'Trace statistic critical values at 95%':b,'Trace statistic critical values at 90%':c,'Maximum eigenvalue statistic':max_eig_stat,'Maximum eigenvalue statistic critical values at 99%':d,'Maximum eigenvalue statistic critical values at 95%':e,'Maximum eigenvalue statistic critical values at 90%':f})
+  print()
+  print()
+  display(table)
+  print()
+  print()
+  trace_coint_rank_result = select_coint_rank(df, det_order = deterministic, k_ar_diff = lag, method = "trace")
+  print(trace_coint_rank_result.summary())
+  print("Trace method cointegration test suggest a cointegration rank of",trace_coint_rank_result.rank)
+  print()
+  print()
+  maxeig_coint_rank_result = select_coint_rank(df, det_order = deterministic, k_ar_diff = lag, method = "maxeig")
+  print(maxeig_coint_rank_result.summary())
+  print("Maximum Eigenvalue method cointegration test suggest a cointegration rank of",maxeig_coint_rank_result.rank)
+  rank = [trace_coint_rank_result.rank, maxeig_coint_rank_result.rank]
+  if trace_coint_rank_result.rank != maxeig_coint_rank_result.rank:
+    coint_rank = trace_coint_rank_result.rank
+  else:
+    coint_rank = st.mode(rank)
+
+  return coint_rank
+
+
+# creating a class for regression diagnostics graphics
+
+class LinearRegDiagnostic():
+    """
+    Diagnostic plots to identify potential problems in a linear regression fit.
+    Mainly,
+        a. non-linearity of data
+        b. Correlation of error terms
+        c. non-constant variance
+        d. outliers
+        e. high-leverage points
+        f. collinearity
+
+    Authors:
+        Prajwal Kafle (p33ajkafle@gmail.com, where 3 = r)
+        Does not come with any sort of warranty.
+        Please test the code one your end before using.
+
+        Matt Spinelli (m3spinelli@gmail.com, where 3 = r)
+        (1) Fixed incorrect annotation of the top most extreme residuals in
+            the Residuals vs Fitted and, especially, the Normal Q-Q plots.
+        (2) Changed Residuals vs Leverage plot to match closer the y-axis
+            range shown in the equivalent plot in the R package ggfortify.
+        (3) Added horizontal line at y=0 in Residuals vs Leverage plot to
+            match the plots in R package ggfortify and base R.
+        (4) Added option for placing a vertical guideline on the Residuals
+            vs Leverage plot using the rule of thumb of h = 2p/n to denote
+            high leverage (high_leverage_threshold=True).
+        (5) Added two more ways to compute the Cook's Distance (D) threshold:
+            * 'baseR': D > 1 and D > 0.5 (default)
+            * 'convention': D > 4/n
+            * 'dof': D > 4 / (n - k - 1)
+        (6) Fixed class name to conform to Pascal casing convention
+        (7) Fixed Residuals vs Leverage legend to work with loc='best'
+    """
+
+    def __init__(self,
+                 results: Type[sm.regression.linear_model.RegressionResultsWrapper]) -> None:
+        """
+        For a linear regression model, generates following diagnostic plots:
+
+        a. residual
+        b. qq
+        c. scale location and
+        d. leverage
+
+        and a table
+
+        e. vif
+
+        Args:
+            results (Type[sm.regression.linear_model.RegressionResultsWrapper]):
+                must be instance of sm.regression.linear_model object
+
+        Raises:
+            TypeError: if instance does not belong to above object
+
+        Example:
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> import sm.formula.api as smf
+        >>> x = np.linspace(-np.pi, np.pi, 100)
+        >>> y = 3*x + 8 + np.random.normal(0,1, 100)
+        >>> df = pd.DataFrame({'x':x, 'y':y})
+        >>> res = smf.ols(formula= "y ~ x", data=df).fit()
+        >>> cls = Linear_Reg_Diagnostic(res)
+        >>> cls(plot_context="seaborn-paper")
+
+        In case you do not need all plots you can also independently make an individual plot/table
+        in following ways
+
+        >>> cls = Linear_Reg_Diagnostic(res)
+        >>> cls.residual_plot()
+        >>> cls.qq_plot()
+        >>> cls.scale_location_plot()
+        >>> cls.leverage_plot()
+        >>> cls.vif_table()
+        """
+
+        if isinstance(results, sm.regression.linear_model.RegressionResultsWrapper) is False:
+            raise TypeError("result must be instance of sm.regression.linear_model.RegressionResultsWrapper object")
+
+        self.results = maybe_unwrap_results(results)
+
+        self.y_true = self.results.model.endog
+        self.y_predict = self.results.fittedvalues
+        self.xvar = self.results.model.exog
+        self.xvar_names = self.results.model.exog_names
+
+        self.residual = np.array(self.results.resid)
+        influence = self.results.get_influence()
+        self.residual_norm = influence.resid_studentized_internal
+        self.leverage = influence.hat_matrix_diag
+        self.cooks_distance = influence.cooks_distance[0]
+        self.nparams = len(self.results.params)
+        self.nresids = len(self.residual_norm)
+
+    def __call__(self, plot_context='seaborn-paper', **kwargs):
+        # print(plt.style.available)
+        with plt.style.context(plot_context):
+            fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(10,10))
+            self.residual_plot(ax=ax[0,0])
+            self.qq_plot(ax=ax[0,1])
+            self.scale_location_plot(ax=ax[1,0])
+            self.leverage_plot(
+                ax=ax[1,1],
+                high_leverage_threshold = kwargs.get('high_leverage_threshold'),
+                cooks_threshold = kwargs.get('cooks_threshold'))
+            plt.show()
+
+        return self.vif_table(), fig, ax,
+
+    def residual_plot(self, ax=None):
+        """
+        Residual vs Fitted Plot
+
+        Graphical tool to identify non-linearity.
+        (Roughly) Horizontal red line is an indicator that the residual has a linear pattern
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        sns.residplot(
+            x=self.y_predict,
+            y=self.residual,
+            lowess=True,
+            scatter_kws={'alpha': 0.5},
+            line_kws={'color': 'red', 'lw': 1, 'alpha': 0.8},
+            ax=ax)
+
+        # annotations
+        residual_abs = np.abs(self.residual)
+        abs_resid = np.flip(np.argsort(residual_abs), 0)
+        abs_resid_top_3 = abs_resid[:3]
+        for i in abs_resid_top_3:
+            ax.annotate(
+                i,
+                xy=(self.y_predict[i], self.residual[i]),
+                color='C3')
+
+        ax.set_title('Residuals vs Fitted', fontweight="bold")
+        ax.set_xlabel('Fitted values')
+        ax.set_ylabel('Residuals')
+        return ax
+
+    def qq_plot(self, ax=None):
+        """
+        Standarized Residual vs Theoretical Quantile plot
+
+        Used to visually check if residuals are normally distributed.
+        Points spread along the diagonal line will suggest so.
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        QQ = ProbPlot(self.residual_norm)
+        fig = QQ.qqplot(line='45', alpha=0.5, lw=1, ax=ax)
+
+        # annotations
+        abs_norm_resid = np.flip(np.argsort(np.abs(self.residual_norm)), 0)
+        abs_norm_resid_top_3 = abs_norm_resid[:3]
+        for i, x, y in self.__qq_top_resid(QQ.theoretical_quantiles, abs_norm_resid_top_3):
+            ax.annotate(
+                i,
+                xy=(x, y),
+                ha='right',
+                color='C3')
+
+        ax.set_title('Normal Q-Q', fontweight="bold")
+        ax.set_xlabel('Theoretical Quantiles')
+        ax.set_ylabel('Standardized Residuals')
+        return ax
+
+    def scale_location_plot(self, ax=None):
+        """
+        Sqrt(Standarized Residual) vs Fitted values plot
+
+        Used to check homoscedasticity of the residuals.
+        Horizontal line will suggest so.
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        residual_norm_abs_sqrt = np.sqrt(np.abs(self.residual_norm))
+
+        ax.scatter(self.y_predict, residual_norm_abs_sqrt, alpha=0.5);
+        sns.regplot(
+            x=self.y_predict,
+            y=residual_norm_abs_sqrt,
+            scatter=False, ci=False,
+            lowess=True,
+            line_kws={'color': 'red', 'lw': 1, 'alpha': 0.8},
+            ax=ax)
+
+        # annotations
+        abs_sq_norm_resid = np.flip(np.argsort(residual_norm_abs_sqrt), 0)
+        abs_sq_norm_resid_top_3 = abs_sq_norm_resid[:3]
+        for i in abs_sq_norm_resid_top_3:
+            ax.annotate(
+                i,
+                xy=(self.y_predict[i], residual_norm_abs_sqrt[i]),
+                color='C3')
+
+        ax.set_title('Scale-Location', fontweight="bold")
+        ax.set_xlabel('Fitted values')
+        ax.set_ylabel(r'$\sqrt{|\mathrm{Standardized\ Residuals}|}$');
+        return ax
+
+    def leverage_plot(self, ax=None, high_leverage_threshold=False, cooks_threshold='baseR'):
+        """
+        Residual vs Leverage plot
+
+        Points falling outside Cook's distance curves are considered observation that can sway the fit
+        aka are influential.
+        Good to have none outside the curves.
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        ax.scatter(
+            self.leverage,
+            self.residual_norm,
+            alpha=0.5);
+
+        sns.regplot(
+            x=self.leverage,
+            y=self.residual_norm,
+            scatter=False,
+            ci=False,
+            lowess=True,
+            line_kws={'color': 'red', 'lw': 1, 'alpha': 0.8},
+            ax=ax)
+
+        # annotations
+        leverage_top_3 = np.flip(np.argsort(self.cooks_distance), 0)[:3]
+        for i in leverage_top_3:
+            ax.annotate(
+                i,
+                xy=(self.leverage[i], self.residual_norm[i]),
+                color = 'C3')
+
+        factors = []
+        if cooks_threshold == 'baseR' or cooks_threshold is None:
+            factors = [1, 0.5]
+        elif cooks_threshold == 'convention':
+            factors = [4/self.nresids]
+        elif cooks_threshold == 'dof':
+            factors = [4/ (self.nresids - self.nparams)]
+        else:
+            raise ValueError("threshold_method must be one of the following: 'convention', 'dof', or 'baseR' (default)")
+        for i, factor in enumerate(factors):
+            label = "Cook's distance" if i == 0 else None
+            xtemp, ytemp = self.__cooks_dist_line(factor)
+            ax.plot(xtemp, ytemp, label=label, lw=1.25, ls='--', color='red')
+            ax.plot(xtemp, np.negative(ytemp), lw=1.25, ls='--', color='red')
+
+        if high_leverage_threshold:
+            high_leverage = 2 * self.nparams / self.nresids
+            if max(self.leverage) > high_leverage:
+                ax.axvline(high_leverage, label='High leverage', ls='-.', color='purple', lw=1)
+
+        ax.axhline(0, ls='dotted', color='black', lw=1.25)
+        ax.set_xlim(0, max(self.leverage)+0.01)
+        ax.set_ylim(min(self.residual_norm)-0.1, max(self.residual_norm)+0.1)
+        ax.set_title('Residuals vs Leverage', fontweight="bold")
+        ax.set_xlabel('Leverage')
+        ax.set_ylabel('Standardized Residuals')
+        plt.legend(loc='best')
+        return ax
+
+    def vif_table(self):
+        """
+        VIF table
+
+        VIF, the variance inflation factor, is a measure of multicollinearity.
+        VIF > 5 for a variable indicates that it is highly collinear with the
+        other input variables.
+        """
+        vif_df = pd.DataFrame()
+        vif_df["Features"] = self.xvar_names
+        vif_df["VIF Factor"] = [variance_inflation_factor(self.xvar, i) for i in range(self.xvar.shape[1])]
+
+        return (vif_df
+                .sort_values("VIF Factor")
+                .round(2))
+
+
+    def __cooks_dist_line(self, factor):
+        """
+        Helper function for plotting Cook's distance curves
+        """
+        p = self.nparams
+        formula = lambda x: np.sqrt((factor * p * (1 - x)) / x)
+        x = np.linspace(0.001, max(self.leverage), 50)
+        y = formula(x)
+        return x, y
+
+
+    def __qq_top_resid(self, quantiles, top_residual_indices):
+        """
+        Helper generator function yielding the index and coordinates
+        """
+        offset = 0
+        quant_index = 0
+        previous_is_negative = None
+        for resid_index in top_residual_indices:
+            y = self.residual_norm[resid_index]
+            is_negative = y < 0
+            if previous_is_negative == None or previous_is_negative == is_negative:
+                offset += 1
+            else:
+                quant_index -= offset
+            x = quantiles[quant_index] if is_negative else np.flip(quantiles, 0)[quant_index]
+            quant_index += 1
+            previous_is_negative = is_negative
+            yield resid_index, x, y
+
+# Function to run OLS model
+
+def ols_model(df):
+
+  print("Variables selection for the model")
+  variables_input = input("Enter columns to be used in model seperated by comma: ").lower()
+  variables_list  = variables_input.split(",")
+  dependent_input = input("Please put your dependent variable name: ").lower()
+
+  print()
+  print("Sample selection and sample transformation")
+  og_df = df[variables_list].copy(deep = True).loc[input('Please insert model sample start date in YYYY-MM-DD format: '):input('Please insert model sample end date in YYYY-MM-DD format: ')].dropna()
+  transformed_df = transform_data(og_df).dropna()
+
+  print()
+  print("Model parameter setting and fitting")
+  formula = input("Please put the formula of the ols, for example log brent linear model with balance and recession indicator as exogenous variables will have a formula such as 'np.log(brent) ~ balance + recession': ")
+  model = sm.OLS.from_formula(formula = formula, data = transformed_df)
+  fit = model.fit(cov_type = 'HAC', cov_kwds = {'maxlags':12, 'use_correction':True})
+  residual = fit.resid
+  predict = fit.predict(exog = transformed_df, transform = True).to_frame(name = dependent_input)
+  actual = og_df.loc[predict.index[0]:predict.index[-1]]
+
+  random_walk_model = ARIMA(og_df[dependent_input], order = (1, 0, 0))
+  randow_walk_fit = random_walk_model.fit()
+  random_walk_residual = randow_walk_fit.resid
+  random_walk_predict = randow_walk_fit.predict().to_frame(name = dependent_input)
+  random_walk_actual = og_df.loc[random_walk_predict.index[0]:random_walk_predict.index[-1]]
+
+  print()
+  print("Inversing model fitted value")
+  predict = inverse_transformation(og_df, predict)
+
+  lin_stat, lin_pvalue, lin_ftest = linear_lm(residual, model.exog)
+  linear_test = pd.DataFrame({'10%':[lin_pvalue],'5%':[lin_pvalue],'1%':[lin_pvalue]}).style.apply(pvalue_formatting2, subset = ['10%','5%','1%'])
+
+  cor_pvalue = np.array(acorr_ljungbox(residual, lags = [24])['lb_pvalue'].values).item()
+  corr_test = pd.DataFrame({'10%':[cor_pvalue],'5%':[cor_pvalue],'1%':[cor_pvalue]}).style.apply(pvalue_formatting2, subset = ['10%','5%','1%'])
+
+  het_stata,het_pvaluea,het_statb,het_pvalueb = het_breuschpagan(residual, exog_het = fit.model.exog)
+  hetero_test = pd.DataFrame({'10%':[het_pvaluea],'5%':[het_pvaluea],'1%':[het_pvaluea]}).style.apply(pvalue_formatting2, subset = ['10%','5%','1%'])
+
+  exo_test = pd.DataFrame([variance_inflation_factor(fit.model.exog, i) for i in range(fit.model.exog.shape[1])], index = model.exog_names, columns = ["VIF"]).style.apply(vif_formatting)
+
+  nor_stat, nor_pvalue, skew, kurtosis = jarque_bera(residual)
+  normal_test = pd.DataFrame({'10%':[nor_pvalue],'5%':[nor_pvalue],'1%':[nor_pvalue]}).style.apply(pvalue_formatting2, subset = ['10%','5%','1%'])
+
+
+  print()
+  print()
+  print(fit.summary())
+  print()
+  print()
+  print()
+  print("Series of test to identify model's robustness: Green cells indicate passing of the test")
+  print()
+  print()
+  print("Lagrange multiplier test to identify model linearity: H0 is that the regression is correctly modeled as linear.")
+  display(linear_test)
+  print()
+  print()
+  print("OLS model with constant (read: intercept) is considered to have an expected residual mean of zero thus passing the assumption that residuals have a population mean of zero")
+  print()
+  print()
+  print("Still has not found test for endogeneity - to be updated")
+  print()
+  print()
+  print("Ljung-Box test for serial correlation: H0 is no serial correlation up to lag 24")
+  display(corr_test)
+  print()
+  print()
+  print("Breusch-Pagan Lagrange Multiplier test for heteroscedasticity: H0 is that the error variances are all equal, homoscedastic")
+  display(hetero_test)
+  print()
+  print()
+  print("Variance Inflation Factor test for perfect linearity between explanatory variables: if VIF is greater than 5, then the explanatory variable given by exog_idx is highly collinear with the other explanatory variables")
+  display(exo_test)
+  print()
+  print()
+  print("Jarque Bera test for normality: H0 is standadised residual shows normality")
+  display(normal_test)
+  print()
+  print()
+  print()
+  cls = LinearRegDiagnostic(fit)
+  vif, fig, ax = cls()
+  print()
+  print()
+  print()
+  print()
+  plt.plot(actual[dependent_input], color = "mediumblue", label = 'Actual')
+  plt.plot(predict, color = "darkorange", label = 'Model fitting')
+  plt.plot(random_walk_predict, color = "red", label = "Random walk")
+  plt.ylabel(input("Enter the Y label name and unit "))
+  plt.xlabel('Date')
+  plt.xticks(rotation=90)
+  plt.title("Model fitting versus actual data")
+  plt.legend()
+  plt.show()
+  print()
+  print()
+  forecast_accuracy(predict,actual[dependent_input])
+  rw_forecast_accuracy(random_walk_predict,random_walk_actual[dependent_input])
+
+  return model, fit, predict, residual, actual, formula
+
+# Function for cross validation
+
+def ols_simple_validation(actual, formula):
+
+  actual = actual.copy()
+  dependent = input("Please put the dependent variable name here: ")
+
+  print("Splitting dataset into train and test sets")
+  train, test = train_test_split(actual, test_size = float(input("Please put the desired size of your test data in decimal i.e. 20% put 0.2: ")), shuffle = False)
+
+  print()
+  print("Sample transformation")
+  transformed_df = transform_data(train).dropna()
+
+  print()
+  print("Model parameter setting and fitting")
+  train_model = sm.OLS.from_formula(formula = formula, data = transformed_df)
+  train_fit = train_model.fit(cov_type = 'HAC', cov_kwds = {'maxlags':12, 'use_correction':True})
+  test_forecast = train_fit.predict(test).to_frame(name = dependent)
+
+
+  random_walk_model = ARIMA(train[dependent], order = (1, 0, 0))
+  randow_walk_fit = random_walk_model.fit()
+  random_walk_forecast = randow_walk_fit.forecast(steps = len(test)).to_frame(name = dependent)
+
+  print()
+  print("Inversing model fitted value")
+  test_forecast = inverse_transformation(actual[dependent], test_forecast)
+
+  print()
+  print()
+  plt.plot(actual[dependent], color = "mediumblue", label = 'Actual')
+  plt.plot(test_forecast, color = "darkorange", label = 'Model fitting')
+  plt.plot(random_walk_forecast, color = "red", label = 'Random walk')
+  plt.ylabel(input("Enter the Y label name and unit "))
+  plt.xlabel('Date')
+  plt.xticks(rotation=90)
+  plt.title("Forecast generated from train datasets")
+  plt.legend()
+  plt.show()
+  print()
+  print()
+  forecast_accuracy(test_forecast,test[dependent])
+  rw_forecast_accuracy(random_walk_forecast, test[dependent])
+
+# Function to calculate the Mean Squared Error (MSE) and Root Mean Squared Error (RMSE)
+def calculate_errors(true_values, predicted_values):
+    mse = mean_squared_error(true_values, predicted_values)
+    rmse = np.sqrt(mse)
+    return mse, rmse
+
+# Function for rolling time window cross-validation with OLS
+def ols_rolling_window(actual, window_size):
+
+  actual = actual.copy()
+
+  print("Splitting dataset into train and test sets")
+  train, test = train_test_split(actual, test_size=float(input("Please put the desired size of your test data in decimal i.e. 20% put 0.2: ")), shuffle=False)
+
+  test_size = float(input("Please enter the desired size of your test data as a decimal (e.g., 0.2 for 20%): "))
+  train_size = 1 - test_size
+
+  split_index = int(len(actual) * train_size)
+
+  # Ask the user for the target variable they want to predict
+  print("Variables selection for the model")
+  variables_input = input("Enter columns to be used in model seperated by comma: ").lower()
+  variables_list  = variables_input.split(",")
+  dependent_input = input("Please put your dependent variable name: ").lower()
+
+  mse_values = []  # To store MSE values for each rolling window
+  rmse_values = []  # To store RMSE values for each rolling window
+
+
+  print()
+  print("Sample transformation")
+  transformed_df = transform_data(train).dropna()
+
+  print()
+  print("Model parameter setting and fitting")
+  train_model = sm.OLS.from_formula(formula = formula, data = transformed_df)
+  train_fit = train_model.fit(cov_type = 'HAC', cov_kwds = {'maxlags':12, 'use_correction':True})
+  test_forecast = train_fit.predict(test).to_frame(name = dependent_input)
+
+
+  random_walk_model = ARIMA(train[dependent_input], order = (1, 0, 0))
+  randow_walk_fit = random_walk_model.fit()
+  random_walk_forecast = randow_walk_fit.forecast(steps = len(test)).to_frame(name = dependent_input)
+
+  print()
+  print("Inversing model fitted value")
+  test_forecast = inverse_transformation(actual[dependent_input], test_forecast)
+
+  print()
+  print()
+  plt.plot(actual[dependent_input], color = "mediumblue", label = 'Actual')
+  plt.plot(test_forecast, color = "darkorange", label = 'Model fitting')
+  plt.plot(random_walk_forecast, color = "red", label = 'Random walk')
+  plt.ylabel(input("Enter the Y label name and unit "))
+  plt.xlabel('Date')
+  plt.xticks(rotation=90)
+  plt.title("Forecast generated from train datasets")
+  plt.legend()
+  plt.show()
+  print()
+  print()
+  forecast_accuracy(test_forecast,test[dependent_input])
+  rw_forecast_accuracy(random_walk_forecast, test[dependent_input])
+
+  print("Fitting OLS model")
+
+  for i in range(len(actual) - window_size + 1):
+        train_data = actual.iloc[i:i + split_index]
+        variables_to_include = variables_list + [dependent_input]
+        test_data = actual.iloc[i + split_index:i + split_index + window_size][variables_to_include]
+
+
+        X_train = train_data.drop(columns=[variables_to_include])  # Independent variables
+        y_train = train_data[dependent_input]  # Dependent variable
+        X_test = test_data.drop(columns=[variables_to_include])
+        y_test = test_data[dependent_input]
+
+        # Fit OLS model
+        model = sm.OLS(y_train, sm.add_constant(X_train))
+        fit = model.fit()
+
+        # Predict on the test set
+        test_forecast = fit.predict(sm.add_constant(X_test))
+
+        # Calculate and store errors for the rolling window
+        mse, rmse = calculate_errors(y_test, test_forecast)
+        mse_values.append(mse)
+        rmse_values.append(rmse)
+
+        # Optionally, you can plot the actual vs. predicted for each rolling window
+        plt.plot(y_test, color="mediumblue", label='Actual')
+        plt.plot(test_forecast, color="darkorange", label='Model fitting')
+        plt.ylabel(dependent_input)
+        plt.xlabel('Date')
+        plt.xticks(rotation=90)
+        plt.title("Forecast generated from train datasets")
+        plt.legend()
+        plt.show()
+
+  # Create a DataFrame for results
+  results_data = {
+      'Rolling Window': list(range(1, len(mse_values) + 1)),
+      'MSE': mse_values,
+      'RMSE': rmse_values
+  }
+  results_df = pd.DataFrame(results_data)
+
+  # Display the DataFrame
+  display(results_df)
+
+  print()
+  print("Average MSE:", np.mean(mse_values))
+  print()
+  print("Average RMSE:", np.mean(rmse_values))
+
+# code to mount drive (if you are using google Colab)
+from google.colab import drive
+drive.mount('/content/drive')
+
+# code to read original data
+path = '/content/drive/MyDrive/Internship/USDFAST.xlsx'
+sheet = input("Please put your sheet name here: ")
+data = pd.read_excel(path, sheet_name = sheet, index_col = 'Date')
+
+# code to show exploratory data analysis
+eda(data)
+
+#code to create specific dataframe for testing purposes to ensure no changes to original dataframe
+ols_df = pd.DataFrame(data[input('Please put the columns you want to use for this OLS model seperated by space: ').split(" ")].copy(deep = True)).loc[input('Please insert model sample start date in YYYY-MM-DD format '):input('Please insert model sample end date in YYYY-MM-DD format ')].dropna()
+
+# code for EDA (for choosen columns)
+eda(ols_df)
+
+# code for OLS model fitting
+model, fit, predict, residual, actual, formula = ols_model(data)
+
+# code for cross validation
+ols_simple_validation(actual, formula)
+
+# code for rolling time window
+ols_rolling_window (actual,window_size=5)
+
